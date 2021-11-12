@@ -1,0 +1,507 @@
+ 
+#include "mbed.h"
+#include "Keypad.h"
+#include <TextLCD.h>
+
+TextLCD lcd(PTE20, PTE21, PTE22, PTE23, PTE29, PTE30, TextLCD::LCD16x2);
+Keypad pad(PTA12, PTD4, PTA2, PTA1, PTC9, PTC8, PTA5, PTA4);
+SPI spi(PTD2, PTD3, PTD1);          // Arduino compatible MOSI, MISO, SCLK
+DigitalOut cs(PTD0);                // Chip select
+
+PwmOut redfirst(PTB1); //first red
+PwmOut redsecond(PTB0);  //second red
+PwmOut redthird(PTB2); //third red
+
+PwmOut greenfirst(PTC2); //first green
+//PwmOut greensecond(PTB3);  //second green
+//PwmOut greenthird(PTB2); //third green
+
+PwmOut buzz(PTB3);       //buzzer
+
+const unsigned char easy[]= {
+    0x10,0x14,0x40,0xC0,0x80,0x20,0x00,0xFF
+                            };
+const unsigned char easyshow[]= {
+    0xFF,0x89,0x89,0x89,0x89,0x89,0x89,0x89
+                                };
+
+const unsigned char medium[]= {
+    0x05,0xC8,0x82,0xFE,0x56,0x63,0x90,0xC6
+                                };
+
+const unsigned char mediumshow[]= {
+    0xFF,0x02,0x04,0x08,0x08,0x04,0x02,0xFF
+                                    };
+
+const unsigned char hard[]= {
+    0x98,0x90,0x1D,0x2F,0xE4,0xF9,0xB1,0xCC
+                            };
+
+const unsigned char hardshow[]= {
+    0xFF,0x18,0x18,0x18,0x18,0x18,0x18,0xFF
+                                };
+                                
+const unsigned char play[]= {
+    0xEF,0x55,0xE7,0x00,0x9F,0x68,0x38,0x00
+                            };
+
+const unsigned char pass[]= {
+    0x9F,0xB5,0xD7,0x90,0x9E,0xB5,0xDE,0x90
+                            };
+
+const unsigned char fail[]= {
+    0x9F,0xF5,0x91,0x00,0xFE,0x85,0x8E,0x00
+                            };
+const unsigned char empty[]= {
+    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00
+                              };
+                            
+//const unsigned char led1[]= {
+//    0x30,0x78,0x7C,0x3E,0x3E,0x7C,0x78,0x30
+//};  //H
+ 
+/// Send two bytes to SPI bus
+void SPI_Write2(unsigned char MSB, unsigned char LSB)
+{
+    cs = 0;                         // Set CS Low
+    spi.write(MSB);                 // Send two bytes
+    spi.write(LSB);
+    cs = 1;                         // Set CS High
+}
+ 
+/// MAX7219 initialisation
+void Init_MAX7219(void)
+{
+    SPI_Write2(0x09, 0x00);         // Decoding off
+    SPI_Write2(0x0A, 0x08);         // Brightness to intermediate
+    SPI_Write2(0x0B, 0x07);         // Scan limit = 7
+    SPI_Write2(0x0C, 0x01);         // Normal operation mode
+    SPI_Write2(0x0F, 0x0F);         // Enable display test
+    wait_ms(500);                   // 500 ms delay
+    SPI_Write2(0x01, 0x00);         // Clear row 0.
+    SPI_Write2(0x02, 0x00);         // Clear row 1.
+    SPI_Write2(0x03, 0x00);         // Clear row 2.
+    SPI_Write2(0x04, 0x00);         // Clear row 3.
+    SPI_Write2(0x05, 0x00);         // Clear row 4.
+    SPI_Write2(0x06, 0x00);         // Clear row 5.
+    SPI_Write2(0x07, 0x00);         // Clear row 6.
+    SPI_Write2(0x08, 0x00);         // Clear row 7.
+    SPI_Write2(0x0F, 0x00);         // Disable display test
+    wait_ms(500);                   // 500 ms delay
+}
+
+char read_char(void)
+{
+    int released = 1;
+    char key;
+    while(1)
+    {
+        key = pad.ReadKey();               
+
+        if(key == '\0')
+            released = 1;                       
+
+        if((key != '\0') && (released == 1)) 
+            return key;            
+    }   
+}
+
+int main()
+{
+    cs = 1;                         // CS initially High
+    spi.format(8,0);                // 8-bit format, mode 0,0
+    spi.frequency(1000000);         // SCLK = 1 MHz
+    Init_MAX7219();                // Initialize the LED controller
+    
+    for (int i=1; i<9; i++)
+        SPI_Write2(i,play[i-1]);
+    wait(2);
+    for (int i=1; i<9; i++)
+        SPI_Write2(i,empty[i-1]);
+    wait(1);
+    
+    char led1[8];
+    char key1, key2, key3;
+    char password;
+    char neww;
+    int wronge = 0;
+    int wrongm = 0;
+    int wrongh = 0;
+    int t = 0;
+    
+    
+    lcd.cls();
+    lcd.printf("Welcome to show!");
+    
+    redfirst.write(1.0f);
+    redsecond.write(1.0f);
+    redthird.write(1.0f);    
+    
+    lcd.cls();
+    lcd.printf("Ready to start ?");
+    wait(2);
+    lcd.cls();
+    lcd.printf("Easy Mode starts");
+    wait(2);
+    lcd.cls();
+    
+    greenfirst.write(0.0f);
+    
+    //////////////////////////////////////
+    for (int i=1; i<9; i++)
+        SPI_Write2(i,empty[i-1]);
+    wait(1);
+    
+    while (t<3)      
+        {
+        wronge = 0;
+        for (int eshow=1; eshow<9; eshow++)
+            {
+            SPI_Write2(eshow,easyshow[eshow-1]);
+            }
+        wait(3);
+        
+        for (int easyy=1; easyy<9; easyy++)
+            {
+            SPI_Write2(easyy,easy[easyy-1]);
+            }
+        wait(3);
+        
+        
+        for(int i=1; i<9; i++)      // Write first character (8 rows)
+            {
+            lcd.cls();
+            lcd.printf("Enter the number:");
+            key1 = read_char();
+            wait(0.5);
+            lcd.printf("%c", key1);
+            key2 = read_char();
+            wait(0.5);
+            lcd.printf("%c", key2);
+            key3 = read_char();
+            wait(0.5);
+            lcd.printf("%c", key3);
+            password = (key1 - 48) * 100 + (key2 - 48) * 10 + (key3 - 48);
+            wait(1);
+            neww = ("0x%x\n",password);
+            //lcd.printf("%c", password);
+            wait(0.3);
+            led1[i-1] = neww;
+            }
+        wait(1);                    // 1 sec delay
+        for (int bloww=0; bloww<5; bloww++)
+            {
+            for (int j=1; j<9; j++)
+                SPI_Write2(j,led1[j-1]);
+            wait(1);
+
+            for (int i=1; i<9; i++)
+                SPI_Write2(i,empty[i-1]);
+            wait(0.2); 
+            
+            for (int j=1; j<9; j++)
+                SPI_Write2(j,easy[j-1]);
+            wait(1);    
+            
+            for (int i=1; i<9; i++)
+                SPI_Write2(i,empty[i-1]);
+            wait(0.2); 
+            }
+        for (int dif=0; dif<8; dif++)
+            {
+            if (led1[dif] != easy[dif])
+                {
+                wronge = wronge + 1;
+                }
+            }
+       
+        if (wronge != 0)
+            {
+            t = t + 1;
+            lcd.cls();
+            lcd.printf("Try again");
+            wait(2);
+            }
+        else
+            {
+            lcd.cls();
+            lcd.printf("You passed the easy mode");
+            goto passeasy;
+            }
+        if (t == 1)
+            {
+            redthird.write(0.0f);
+            }
+        if (t == 2)
+            {
+            redthird.write(0.0f);
+            redsecond.write(0.0f);
+            }
+        }
+    if (t == 3)
+        {
+        redthird.write(0.0f);
+        redsecond.write(0.0f);
+        redfirst.write(0.0f);
+        lcd.cls();
+        lcd.printf("Failed in easy mode");
+        wait(2);
+        goto failedpart;
+        }
+        
+    ///////////////////////////
+    passeasy: 
+    
+    greenfirst.write(1.0f);
+    wait(2);
+    greenfirst.write(0.0f);
+    
+    for (int i=1; i<9; i++)
+        SPI_Write2(i,empty[i-1]);
+    wait(1);
+    while (t<3)      
+        {
+        wrongm = 0;
+        for (int mshow=1; mshow<9; mshow++)
+            {
+            SPI_Write2(mshow,mediumshow[mshow-1]);
+            }
+        wait(7);
+        
+        for (int m=1; m<9; m++)
+            {
+            SPI_Write2(m,medium[m-1]);
+            }
+        wait(3);
+        
+        for (int i=1; i<9; i++)
+            SPI_Write2(i,empty[i-1]);
+        wait(1);
+        
+        for(int i=1; i<9; i++)      // Write first character (8 rows)
+            {
+            lcd.cls();
+            lcd.printf("Enter the number:");
+            key1 = read_char();
+            wait(0.5);
+            lcd.printf("%c", key1);
+            key2 = read_char();
+            wait(0.5);
+            lcd.printf("%c", key2);
+            key3 = read_char();
+            wait(0.5);
+            lcd.printf("%c", key3);
+            password = (key1 - 48) * 100 + (key2 - 48) * 10 + (key3 - 48);
+            wait(1);
+            neww = ("0x%x\n",password);
+            //lcd.printf("%c", password);
+            wait(0.3);
+            led1[i-1] = neww;
+            }
+        wait(1);                    // 1 sec delay
+        for (int bloww=0; bloww<5; bloww++)
+            {
+            for (int j=1; j<9; j++)
+                SPI_Write2(j,led1[j-1]);
+            wait(1);
+            
+            for (int i=1; i<9; i++)
+                SPI_Write2(i,empty[i-1]);
+            wait(0.2); 
+            
+            for (int j=1; j<9; j++)
+                SPI_Write2(j,medium[j-1]);
+            wait(1);
+            
+            for (int i=1; i<9; i++)
+                SPI_Write2(i,empty[i-1]);
+            wait(0.2);     
+            }
+        for (int dif=0; dif<8; dif++)
+            {
+            if (led1[dif] != medium[dif])
+                {
+                wrongm = wrongm + 1;
+                }
+            }
+       
+        if (wrongm != 0)
+            {
+            t = t + 1;
+            lcd.cls();
+            lcd.printf("Try again");
+            wait(2);
+            }
+        else
+            {
+            lcd.cls();
+            lcd.printf("You passed the medium mode");
+            goto passmedium;
+            }
+        if (t == 1)
+            {
+            redthird.write(0.0f);
+            }
+        if (t == 2)
+            {
+            redthird.write(0.0f);
+            redsecond.write(0.0f);
+            }
+        }
+    if (t == 3)
+        {
+        redthird.write(0.0f);
+        redsecond.write(0.0f);
+        redfirst.write(0.0f);
+        lcd.cls();
+        lcd.printf("Failed in medium mode");
+        wait(2);
+        goto failedpart;
+        }
+    
+    
+    ////////////////////////////    
+    passmedium:
+    
+    greenfirst.write(1.0f);
+    wait(2);
+    greenfirst.write(0.0f);
+    
+    for (int i=1; i<9; i++)
+        SPI_Write2(i,empty[i-1]);
+    wait(1);
+    
+    while (t<3)      
+        {
+        wrongh = 0;
+        for (int hshow=1; hshow<9; hshow++)
+            {
+            SPI_Write2(hshow,hardshow[hshow-1]);
+            }
+        wait(4);
+        
+        for (int h=1; h<9; h++)
+            {
+            SPI_Write2(h,hard[h-1]);
+            }
+        wait(3);
+        
+        for (int i=1; i<9; i++)
+            SPI_Write2(i,empty[i-1]);
+        wait(1);
+        
+        for(int i=1; i<9; i++)      // Write first character (8 rows)
+            {
+            lcd.cls();
+            lcd.printf("Enter the number:");
+            key1 = read_char();
+            wait(0.5);
+            lcd.printf("%c", key1);
+            key2 = read_char();
+            wait(0.5);
+            lcd.printf("%c", key2);
+            key3 = read_char();
+            wait(0.5);
+            lcd.printf("%c", key3);
+            password = (key1 - 48) * 100 + (key2 - 48) * 10 + (key3 - 48);
+            wait(1);
+            neww = ("0x%x\n",password);
+            //lcd.printf("%c", password);
+            wait(0.3);
+            led1[i-1] = neww;
+            }
+        wait(1);                    // 1 sec delay
+        for (int bloww=0; bloww<5; bloww++)
+            {
+            for (int j=1; j<9; j++)
+                SPI_Write2(j,led1[j-1]);
+            wait(1);
+            
+            for (int i=1; i<9; i++)
+                SPI_Write2(i,empty[i-1]);
+            wait(0.2); 
+                       
+            for (int j=1; j<9; j++)    
+                SPI_Write2(j,hard[j-1]);
+            wait(1);
+                    
+            for (int i=1; i<9; i++)
+                SPI_Write2(i,empty[i-1]);
+            wait(0.2); 
+            }
+        for (int dif=0; dif<8; dif++)
+            {
+            if (led1[dif] != hard[dif])
+                {
+                wrongh = wrongh + 1;
+                }
+            }
+       
+        if (wrongh != 0)
+            {
+            t = t + 1;
+            lcd.cls();
+            lcd.printf("Try again");
+            wait(2);
+            }
+        else
+            {
+            lcd.cls();
+            lcd.printf("You passed the hard mode");
+            goto passhard;
+            }
+        if (t == 1)
+            {
+            redthird.write(0.0f);
+            }
+        if (t == 2)
+            {
+            redthird.write(0.0f);
+            redsecond.write(0.0f);
+            }
+        }
+    if (t == 3)
+        {
+        redthird.write(0.0f);
+        redsecond.write(0.0f);
+        redfirst.write(0.0f);
+        lcd.cls();
+        lcd.printf("Failed in hard mode");
+        wait(2);
+        goto failedpart;
+        }
+    
+    passhard:
+    greenfirst.write(1.0f);
+    wait(2);
+    greenfirst.write(0.0f);
+    
+    if (t != 3)
+        {
+        lcd.cls();
+        lcd.printf("Congratulations!");
+        wait(2);
+        
+    stayhere:
+    greenfirst.write(1.0f);
+    for (int i=1; i<9; i++)
+        SPI_Write2(i,pass[i-1]);
+    wait(1);
+    goto stayhere;
+        
+        }
+    
+    
+    
+    
+    failedpart:
+    buzz.write(1.0f);
+    lcd.cls();
+    lcd.printf("FAILED");
+    wait(2);
+    for (int failed=1; failed<9; failed++)
+        {
+        SPI_Write2(failed,fail[failed-1]);
+        }
+    
+}
